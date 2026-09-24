@@ -28,6 +28,7 @@ class User(Base):
     password = Column(String, nullable=False)
     role = Column(Enum(UserRole), nullable=False)
     face_image = Column(String, nullable=True)
+    face_last_updated = Column(DateTime, nullable=True)
     matricule = Column(String, nullable=True)
     department_id = Column(String, nullable=True)
     level = Column(Integer, nullable=True)

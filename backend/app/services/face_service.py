@@ -70,3 +70,22 @@ def detect_head_turn(frame1_array, frame2_array, min_shift=0.15):
     if shift < min_shift:
         return False, "No significant head movement detected between frames"
     return True, None
+
+def evaluate_face_update(known_encoding, new_encoding, accept_tolerance=0.6, reject_tolerance=0.75):
+    """
+    Compare a new face against the stored encoding for a face-update request.
+    Returns (decision, distance) where decision is one of:
+      "accept"          - clearly the same person (distance <= accept_tolerance)
+      "accept_flagged"  - same person, moderate change detected (accept_tolerance < distance <= reject_tolerance)
+      "reject"          - does not sufficiently match (distance > reject_tolerance)
+    """
+    known_encoding = np.array(known_encoding)
+    new_encoding = np.array(new_encoding)
+    distance = float(face_recognition.face_distance([known_encoding], new_encoding)[0])
+
+    if distance <= accept_tolerance:
+        return "accept", distance
+    elif distance <= reject_tolerance:
+        return "accept_flagged", distance
+    else:
+        return "reject", distance

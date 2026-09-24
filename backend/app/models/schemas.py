@@ -23,8 +23,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
-    face_image: str       # first frame, facing forward
-    face_image_turned: str  # second frame, head turned
+    face_image: Optional[str] = None
+    face_image_turned: Optional[str] = None
     
 class AdminLoginRequest(BaseModel):
     email: EmailStr
@@ -82,3 +82,17 @@ class AttendanceResponse(BaseModel):
     marked_at: datetime
     face_verified: bool
     location_verified: bool
+
+class UpdateFaceRequest(BaseModel):
+    password: str
+    face_image: str
+    face_image_turned: str
+
+class UpdateFaceResponse(BaseModel):
+    message: str
+    status: str  # "accepted" or "accepted_flagged"
+    distance: float
+
+class AdminUpdateTeacherFaceRequest(BaseModel):
+    face_image: str
+    face_image_turned: str
