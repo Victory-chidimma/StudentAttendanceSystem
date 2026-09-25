@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://127.0.0.1:8001';
+ static const String baseUrl = 'http://192.168.43.163:8001';
 
   // ---- Token Management ----
   static Future<void> saveToken(
@@ -50,18 +50,17 @@ class ApiService {
   static Future<Map<String, dynamic>> login(
     String email,
     String password,
-    String faceImage,
-    String faceImageTurned,
+    String? faceImage,
+    String? faceImageTurned,
   ) async {
+    final Map<String, dynamic> body = {'email': email, 'password': password};
+    if (faceImage != null) body['face_image'] = faceImage;
+    if (faceImageTurned != null) body['face_image_turned'] = faceImageTurned;
+
     final response = await http.post(
       Uri.parse('$baseUrl/api/auth/login'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-        'face_image': faceImage,
-        'face_image_turned': faceImageTurned,
-      }),
+      body: jsonEncode(body),
     );
     return jsonDecode(response.body);
   }
@@ -74,6 +73,24 @@ class ApiService {
       Uri.parse('$baseUrl/api/auth/admin-login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'password': password}),
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> updateFace(
+    String password,
+    String faceImage,
+    String faceImageTurned,
+  ) async {
+    final headers = await getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/auth/update-face'),
+      headers: headers,
+      body: jsonEncode({
+        'password': password,
+        'face_image': faceImage,
+        'face_image_turned': faceImageTurned,
+      }),
     );
     return jsonDecode(response.body);
   }
@@ -297,6 +314,23 @@ class ApiService {
         'password': password,
         'role': 'admin',
         'face_image': faceImage,
+      }),
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> adminUpdateTeacherFace(
+    String teacherId,
+    String faceImage,
+    String faceImageTurned,
+  ) async {
+    final headers = await getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/auth/admin/teachers/$teacherId/face'),
+      headers: headers,
+      body: jsonEncode({
+        'face_image': faceImage,
+        'face_image_turned': faceImageTurned,
       }),
     );
     return jsonDecode(response.body);

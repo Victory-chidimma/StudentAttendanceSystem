@@ -3,7 +3,9 @@ import '../services/api_service.dart';
 import 'user_detail_screen.dart';
 
 class StudentSearchScreen extends StatefulWidget {
-  const StudentSearchScreen({super.key});
+  final bool embedded;
+
+  const StudentSearchScreen({super.key, this.embedded = false});
 
   @override
   State<StudentSearchScreen> createState() => _StudentSearchScreenState();
@@ -75,8 +77,148 @@ class _StudentSearchScreenState extends State<StudentSearchScreen> {
     return dept != null ? dept['name'] : '';
   }
 
+  Widget _buildBody() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search by name, email, or matricule',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onSubmitted: (_) => _search(),
+                    ),
+                  ),
+                  if (widget.embedded)
+                    IconButton(
+                      icon: const Icon(Icons.clear_all),
+                      onPressed: _clearFilters,
+                      tooltip: 'Clear filters',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE0E0E0)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedDepartmentId,
+                          isExpanded: true,
+                          hint: const Text('Department'),
+                          items: _departments
+                              .map<DropdownMenuItem<String>>(
+                                (d) => DropdownMenuItem<String>(
+                                  value: d['id'],
+                                  child: Text(
+                                    d['name'],
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) =>
+                              setState(() => _selectedDepartmentId = val),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE0E0E0)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _selectedLevel,
+                          isExpanded: true,
+                          hint: const Text('Level'),
+                          items: _levels
+                              .map<DropdownMenuItem<int>>(
+                                (l) => DropdownMenuItem<int>(
+                                  value: l,
+                                  child: Text('Level $l'),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) =>
+                              setState(() => _selectedLevel = val),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _search,
+                  icon: const Icon(Icons.search),
+                  label: const Text('Search'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : !_hasSearched
+              ? const Center(
+                  child: Text(
+                    'Use the filters above to search for students',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : _results.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No students found',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _results.length,
+                  itemBuilder: (context, index) {
+                    final s = _results[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _studentCard(s),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildBody();
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Search Students'),
@@ -88,128 +230,7 @@ class _StudentSearchScreenState extends State<StudentSearchScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search by name, email, or matricule',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  onSubmitted: (_) => _search(),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFFE0E0E0)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _selectedDepartmentId,
-                            isExpanded: true,
-                            hint: const Text('Department'),
-                            items: _departments
-                                .map<DropdownMenuItem<String>>(
-                                  (d) => DropdownMenuItem<String>(
-                                    value: d['id'],
-                                    child: Text(
-                                      d['name'],
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (val) =>
-                                setState(() => _selectedDepartmentId = val),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFFE0E0E0)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<int>(
-                            value: _selectedLevel,
-                            isExpanded: true,
-                            hint: const Text('Level'),
-                            items: _levels
-                                .map<DropdownMenuItem<int>>(
-                                  (l) => DropdownMenuItem<int>(
-                                    value: l,
-                                    child: Text('Level $l'),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (val) =>
-                                setState(() => _selectedLevel = val),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _search,
-                    icon: const Icon(Icons.search),
-                    label: const Text('Search'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : !_hasSearched
-                ? const Center(
-                    child: Text(
-                      'Use the filters above to search for students',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
-                : _results.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No students found',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _results.length,
-                    itemBuilder: (context, index) {
-                      final s = _results[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _studentCard(s),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+      body: _buildBody(),
     );
   }
 

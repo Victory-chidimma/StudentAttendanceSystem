@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'session_logs_screen.dart';
 import 'student_search_screen.dart';
+import 'admin_update_teacher_face_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -399,46 +400,84 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _buildUsers(bool isDark) {
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  int _usersSubTab = 0; // 0 = students, 1 = teachers
+
+Widget _buildUsers(bool isDark) {
+  final teachers = _users.where((u) => u['role'] == 'teacher').toList();
+
+  return Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Row(
           children: [
-            const Text(
-              'All Users',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _users.isEmpty
-                  ? const Center(child: Text('No users yet'))
-                  : ListView(
-                      children: _users
-                          .map(
-                            (u) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _userItem(
-                                isDark,
-                                u['full_name'] ?? '',
-                                u['email'] ?? '',
-                                u['role'] ?? '',
-                                u['id'] ?? '',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-            ),
+            Expanded(child: _subTabButton('Students', 0)),
+            const SizedBox(width: 8),
+            Expanded(child: _subTabButton('Teachers', 1)),
           ],
         ),
       ),
-    );
-  }
+      Expanded(
+        child: _usersSubTab == 0
+            ? const StudentSearchScreen(embedded: true)
+            : RefreshIndicator(
+                onRefresh: _loadData,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : teachers.isEmpty
+                    ? ListView(
+                        children: const [
+                          Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(child: Text('No teachers yet')),
+                          ),
+                        ],
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: teachers
+                            .map(
+                              (u) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _userItem(
+                                  isDark,
+                                  u['full_name'] ?? '',
+                                  u['email'] ?? '',
+                                  u['role'] ?? '',
+                                  u['id'] ?? '',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+              ),
+      ),
+    ],
+  );
+}
+
+Widget _subTabButton(String label, int index) {
+  final isSelected = _usersSubTab == index;
+  return GestureDetector(
+    onTap: () => setState(() => _usersSubTab = index),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: isSelected ? const Color(0xFF0D47A1) : Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: isSelected ? Colors.white : Colors.black87,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _userItem(
     bool isDark,
@@ -504,6 +543,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ],
               ),
             ),
+            if (isTeacher)
+              IconButton(
+                icon: const Icon(
+                  Icons.face_retouching_natural_outlined,
+                  color: Color(0xFF4527A0),
+                  size: 20,
+                ),
+                tooltip: 'Update Face',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AdminUpdateTeacherFaceScreen(
+                        teacherId: userId,
+                        teacherName: name,
+                      ),
+                    ),
+                  );
+                },
+              ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(

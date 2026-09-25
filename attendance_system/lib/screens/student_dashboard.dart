@@ -4,6 +4,7 @@ import '../utils/theme_provider.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'mark_attendance_screen.dart';
+import 'update_face_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -671,6 +672,17 @@ class _StudentDashboardState extends State<StudentDashboard> {
               onChanged: (_) => themeProvider.toggleTheme(),
               activeColor: const Color(0xFF0D47A1),
             ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.face_retouching_natural_outlined),
+            title: const Text('Update my face'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const UpdateFaceScreen()),
+              );
+            },
           ),
           const Divider(),
           ListTile(

@@ -58,6 +58,15 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  void _resetFaceCapture() {
+    setState(() {
+      _faceImageBase64 = null;
+      _faceImageTurnedBase64 = null;
+      _faceScanned = false;
+      _captureStage = 0;
+    });
+  }
+
   Future<void> _captureAndClose() async {
     if (_cameraController == null || !_cameraController!.value.isInitialized)
       return;
@@ -83,19 +92,36 @@ class _LoginScreenState extends State<LoginScreen> {
         _captureStage = 2;
         _showCamera = false;
       });
+
+      // Retry login now that we have both face frames (this path is for teachers)
+      setState(() => _isLoading = true);
+      try {
+        final result = await ApiService.login(
+          _emailController.text.trim(),
+          _passwordController.text,
+          _faceImageBase64,
+          _faceImageTurnedBase64,
+        );
+
+        if (result.containsKey('access_token')) {
+          await _completeLogin(result);
+        } else {
+          _showSnackbar(result['detail'] ?? 'Login failed', isError: true);
+          _resetFaceCapture();
+          if (mounted)
+            await _openCamera(); // give them a fresh attempt right away
+        }
+      } catch (e) {
+        _showSnackbar('Connection error. Check your network.', isError: true);
+        _resetFaceCapture();
+      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _login() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       _showSnackbar('Please enter your details', isError: true);
-      return;
-    }
-    if (_faceImageBase64 == null || _faceImageTurnedBase64 == null) {
-      _showSnackbar(
-        'Please complete the face scan (both steps)',
-        isError: true,
-      );
       return;
     }
 
@@ -105,45 +131,62 @@ class _LoginScreenState extends State<LoginScreen> {
       final result = await ApiService.login(
         _emailController.text.trim(),
         _passwordController.text,
-        _faceImageBase64!,
-        _faceImageTurnedBase64!,
+        _faceImageBase64,
+        _faceImageTurnedBase64,
       );
 
       if (result.containsKey('access_token')) {
-        await ApiService.saveToken(
-          result['access_token'],
-          result['role'],
-          result['user_id'],
-          result['full_name'],
-        );
+        await _completeLogin(result);
+        return;
+      }
 
-        if (!mounted) return;
+      if (result['detail'] ==
+          'Face images are required for this account type') {
+        setState(() => _isLoading = false);
+        await _openCamera();
+        return;
+      }
 
-        final role = result['role'];
-        if (role == 'student') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const StudentDashboard()),
-          );
-        } else if (role == 'teacher') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeacherDashboard()),
-          );
-        } else if (role == 'admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const AdminDashboard()),
-          );
-        }
+      if (result['detail'] == 'User not found') {
+        _showRegisterPrompt();
       } else {
         _showSnackbar(result['detail'] ?? 'Login failed', isError: true);
+        _resetFaceCapture();
       }
     } catch (e) {
       _showSnackbar('Connection error. Check your network.', isError: true);
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _completeLogin(Map<String, dynamic> result) async {
+    await ApiService.saveToken(
+      result['access_token'],
+      result['role'],
+      result['user_id'],
+      result['full_name'],
+    );
+
+    if (!mounted) return;
+
+    final role = result['role'];
+    if (role == 'student') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const StudentDashboard()),
+      );
+    } else if (role == 'teacher') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const TeacherDashboard()),
+      );
+    } else if (role == 'admin') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AdminDashboard()),
+      );
+    }
   }
 
   Future<void> _adminLogin() async {
@@ -189,6 +232,34 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : Colors.green,
+      ),
+    );
+  }
+
+  void _showRegisterPrompt() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Account not found'),
+        content: const Text(
+          'No account found with these details. If you are a student, you can register below.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RegisterScreen()),
+              );
+            },
+            child: const Text('Register now'),
+          ),
+        ],
       ),
     );
   }
@@ -376,62 +447,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    if (!_isAdminLogin) ...[
-                      const SizedBox(height: 20),
-                      GestureDetector(
-                        onTap: _openCamera,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF1A2332)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _faceScanned
-                                  ? const Color(0xFF1B5E20)
-                                  : const Color(0xFF90CAF9),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                _faceScanned
-                                    ? Icons.check_circle_outline
-                                    : Icons.camera_alt_outlined,
-                                size: 32,
-                                color: _faceScanned
-                                    ? const Color(0xFF1B5E20)
-                                    : const Color(0xFF1565C0),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _faceScanned
-                                    ? 'Face captured ✓'
-                                    : 'Tap to scan your face',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13,
-                                  color: _faceScanned
-                                      ? const Color(0xFF1B5E20)
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Required for verification',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,

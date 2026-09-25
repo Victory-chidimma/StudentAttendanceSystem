@@ -103,6 +103,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  String? _validateMatriculeLevel() {
+    final matricule = _matriculeController.text.trim().toUpperCase();
+    final level = int.tryParse(_levelController.text.trim());
+
+    if (level == null)
+      return null; // let the existing empty-level check handle this
+
+    final isBtecFormat = matricule.contains('UBA');
+
+    if (isBtecFormat && level != 400) {
+      return 'This matricule format (UBA) is for Level 400 students only. Please check your level or matricule.';
+    }
+    if (!isBtecFormat && level == 400) {
+      return 'Level 400 matricules must start with UBA. Please check your matricule.';
+    }
+    return null; // no mismatch
+  }
+
   Future<void> _register() async {
     if (_fullNameController.text.isEmpty ||
         _emailController.text.isEmpty ||
@@ -121,6 +139,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_selectedRole == 'student' && _levelController.text.isEmpty) {
       _showSnackbar('Please enter your level', isError: true);
       return;
+    }
+    if (_selectedRole == 'student' && _levelController.text.isEmpty) {
+      _showSnackbar('Please enter your level', isError: true);
+      return;
+    }
+
+    // ADD THIS BLOCK:
+    if (_selectedRole == 'student') {
+      final mismatchError = _validateMatriculeLevel();
+      if (mismatchError != null) {
+        _showSnackbar(mismatchError, isError: true);
+        return;
+      }
     }
     if (_faceImageBase64 == null || _faceImageTurnedBase64 == null) {
       _showSnackbar(
