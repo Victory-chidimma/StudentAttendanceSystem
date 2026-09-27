@@ -168,6 +168,44 @@ def get_active_sessions(
     
     return result
 
+# ---------- TEACHER: GET ALL MY SESSIONS (active + closed) ----------
+@router.get("/sessions/my-sessions")
+def get_my_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can view their sessions")
+
+    sessions = (
+        db.query(AttendanceSession)
+        .filter(AttendanceSession.teacher_id == current_user.id)
+        .order_by(AttendanceSession.opened_at.desc())
+        .all()
+    )
+
+    result = []
+    for s in sessions:
+        course = db.query(Course).filter(Course.id == s.course_id).first()
+        attendance_count = (
+            db.query(Attendance)
+            .filter(Attendance.session_id == s.id)
+            .count()
+        )
+        result.append({
+            "id": s.id,
+            "course_id": s.course_id,
+            "course_name": course.name if course else "Unknown",
+            "course_code": course.code if course else "",
+            "opened_at": str(s.opened_at),
+            "closes_at": str(s.closes_at),
+            "is_active": s.is_active,
+            "opened_outside_schedule": s.opened_outside_schedule,
+            "attendance_count": attendance_count,
+        })
+
+    return {"sessions": result}
+
 
 # ---------- STUDENT: MARK ATTENDANCE (Face + GPS) ----------
 @router.post("/mark", response_model=AttendanceResponse)

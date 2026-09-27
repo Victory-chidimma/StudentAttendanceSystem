@@ -582,8 +582,167 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     );
   }
 
+  List<dynamic> _mySessions = [];
+  bool _sessionsLoading = true;
+
+  Future<void> _loadMySessions() async {
+    setState(() => _sessionsLoading = true);
+    try {
+      final result = await ApiService.getMySessions();
+      setState(() {
+        _mySessions = result['sessions'] ?? [];
+        _sessionsLoading = false;
+      });
+    } catch (e) {
+      setState(() => _sessionsLoading = false);
+    }
+  }
+
   Widget _buildStudents(bool isDark) {
-    return const Center(child: Text('Students list - Coming soon'));
+    if (_mySessions.isEmpty && _sessionsLoading) {
+      _loadMySessions();
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadMySessions,
+      child: _sessionsLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _mySessions.isEmpty
+          ? ListView(
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: Text('No sessions opened yet')),
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _mySessions.length,
+              itemBuilder: (context, index) {
+                final s = _mySessions[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SessionRecordsScreen(
+                            sessionId: s['id'],
+                            courseName: s['course_name'] ?? '',
+                            courseCode: s['course_code'] ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    child: _sessionCard(s),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _sessionCard(Map<String, dynamic> s) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(
+          left: BorderSide(
+            color: s['is_active'] == true
+                ? const Color(0xFF1B5E20)
+                : Colors.grey,
+            width: 3,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  s['course_name'] ?? 'Unknown',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: s['is_active'] == true
+                      ? const Color(0xFFE8F5E9)
+                      : const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  s['is_active'] == true ? 'Active' : 'Closed',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: s['is_active'] == true
+                        ? const Color(0xFF1B5E20)
+                        : Colors.grey,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (s['opened_outside_schedule'] == true) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Outside scheduled time',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFFE65100),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Text(
+            s['course_code'] ?? '',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.access_time, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                'Opened: ${s['opened_at'] ?? ''}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${s['attendance_count'] ?? 0} student(s) marked',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildProfile(bool isDark, ThemeProvider themeProvider) {

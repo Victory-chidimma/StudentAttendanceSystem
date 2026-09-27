@@ -3,7 +3,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
- static const String baseUrl = 'http://192.168.43.163:8001';
+  static const String baseUrl =
+      'https://studentattendancesystem-production-fc88.up.railway.app';
 
   // ---- Token Management ----
   static Future<void> saveToken(
@@ -150,6 +151,15 @@ class ApiService {
     final headers = await getAuthHeaders();
     final response = await http.delete(
       Uri.parse('$baseUrl/api/courses/$courseId'),
+      headers: headers,
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> getMySessions() async {
+    final headers = await getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/attendance/sessions/my-sessions'),
       headers: headers,
     );
     return jsonDecode(response.body);
