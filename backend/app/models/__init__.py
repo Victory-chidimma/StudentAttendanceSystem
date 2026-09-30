@@ -53,6 +53,22 @@ class Course(Base):
     start_time = Column(Time, nullable=True)
     end_time = Column(Time, nullable=True)
 
+class TimetableEntry(Base):
+    __tablename__ = "timetable_entries"
+    id = Column(String, primary_key=True)
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    day_of_week = Column(Integer, nullable=False)    # 0 = Monday ... 5 = Saturday
+    start_period = Column(Integer, nullable=False)   # 1 to 4
+    span = Column(Integer, nullable=False, default=1)  # 1 = single, 2 = double period
+    hall = Column(String, nullable=False)
+    academic_year = Column(String, nullable=False)   # e.g. "2025/2026"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class CourseDepartment(Base):
+    __tablename__ = "course_departments"
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True)
+    department_id = Column(String, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True)
+    
 class AttendanceSession(Base):
     __tablename__ = "attendance_sessions"
     id = Column(String, primary_key=True)

@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 load_dotenv()
 
 from app.routes import auth, students, teachers, admin, attendance, courses
+from app.routes import timetable
 from app.database import SessionLocal
 from app.models import AttendanceSession
 
@@ -60,6 +61,7 @@ app.include_router(teachers.router, prefix="/api/teachers", tags=["Teachers"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(attendance.router, prefix="/api/attendance", tags=["Attendance"])
 app.include_router(courses.router, prefix="/api", tags=["Courses"])
+app.include_router(timetable.router, prefix="/api/timetable", tags=["Timetable"])
 
 @app.get("/")
 def root():

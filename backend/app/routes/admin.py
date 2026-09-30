@@ -205,6 +205,7 @@ def create_admin(
     db.refresh(user)
 
     return {"message": "Admin created successfully", "user_id": user.id, "email": user.email}
+
 @router.post("/create-teacher")
 def create_teacher(
     data: dict,
@@ -217,6 +218,12 @@ def create_teacher(
     existing = db.query(User).filter(User.email == data["email"]).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    department_id = data.get("department_id")
+    if department_id:
+        from app.models import Department
+        if not db.query(Department).filter(Department.id == department_id).first():
+            raise HTTPException(status_code=400, detail="Department not found")
 
     image_array = decode_base64_image(data["face_image"])
     encoding, error = get_face_encoding(image_array)
@@ -231,6 +238,7 @@ def create_teacher(
         email=data["email"],
         password=hashed,
         role="teacher",
+        department_id=department_id,
         face_image=str(encoding.tolist()),
     )
     db.add(user)
@@ -276,3 +284,27 @@ def get_session_logs(
         "total_sessions": len(result),
         "sessions": result,
     }
+
+@router.patch("/users/{user_id}/department")
+def set_user_department(
+    user_id: str,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can change departments")
+
+    from app.models import Department
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    dept = db.query(Department).filter(Department.id == data.get("department_id")).first()
+    if not dept:
+        raise HTTPException(status_code=400, detail="Department not found")
+
+    user.department_id = dept.id
+    db.commit()
+    return {"message": "Department updated", "user_id": user.id, "department_id": dept.id}
