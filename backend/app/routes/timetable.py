@@ -164,7 +164,6 @@ def create_entry(
     db.refresh(entry)
     return _entry_dict(entry, course, teacher)
 
-
 @router.put("/{entry_id}")
 def update_entry(
     entry_id: str,
@@ -177,7 +176,20 @@ def update_entry(
     entry = db.query(TimetableEntry).filter(TimetableEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Timetable entry not found")
-    course = db.query(Course).filter(Course.id == entry.course_id).first()
+    old_course = db.query(Course).filter(Course.id == entry.course_id).first()
+
+    # The course may be swapped for another one of the same level and semester
+    course = old_course
+    new_course_id = data.get("course_id")
+    if new_course_id and new_course_id != entry.course_id:
+        course = db.query(Course).filter(Course.id == new_course_id).first()
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+        if course.level != old_course.level or course.semester != old_course.semester:
+            raise HTTPException(
+                status_code=400,
+                detail="Choose a course of the same level and semester.",
+            )
 
     day, start, span, hall, year = check_shape(
         data.get("day_of_week", entry.day_of_week),
@@ -187,18 +199,30 @@ def update_entry(
         entry.academic_year,
     )
 
-    check_weekly_blocks(db, course, year, span, exclude_entry_id=entry.id)
-    check_clashes(db, course, course.teacher_id, day, start, span, hall, year, exclude_entry_id=entry.id)
+    teacher_id = data.get("teacher_id") or course.teacher_id
+    if not teacher_id:
+        raise HTTPException(status_code=400, detail="Choose a teacher for this course first.")
+    teacher = db.query(User).filter(User.id == teacher_id, User.role == "teacher").first()
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
 
+    teacher_changed = teacher_id != course.teacher_id
+    if teacher_changed:
+        check_teacher_change(db, course, teacher)
+
+    check_weekly_blocks(db, course, year, span, exclude_entry_id=entry.id)
+    check_clashes(db, course, teacher_id, day, start, span, hall, year, exclude_entry_id=entry.id)
+
+    entry.course_id = course.id
     entry.day_of_week = day
     entry.start_period = start
     entry.span = span
     entry.hall = hall
+    if teacher_changed:
+        course.teacher_id = teacher_id
     db.commit()
     db.refresh(entry)
-    teacher = db.query(User).filter(User.id == course.teacher_id).first() if course.teacher_id else None
     return _entry_dict(entry, course, teacher)
-
 
 @router.delete("/{entry_id}")
 def delete_entry(
