@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AttendanceSession, Attendance, Course, User
+from app.models import AttendanceSession, Attendance, Course, User, TimetableEntry
 from app.models.schemas import (
     SessionCreateRequest,
     SessionResponse,
@@ -22,6 +22,15 @@ from app.services.face_service import (
 )
 from app.utils.geo import is_within_radius
 from app.utils.security import get_current_user
+from app.utils.schedule_rules import (
+    to_local,
+    academic_year_for,
+    block_window,
+    locate,
+    week_bounds_utc,
+    day_bounds_utc,
+    used_entry_ids,
+)
 
 router = APIRouter()
 
@@ -47,36 +56,61 @@ def open_session(
 
     if course.teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="You are not assigned to this course")
-    
-    # Check if a session was already opened for this course today
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
-    already_opened_today = (
+
+    now = datetime.utcnow()
+    local_now = to_local(now)
+    year = academic_year_for(local_now)
+
+    entries = (
+        db.query(TimetableEntry)
+        .filter(TimetableEntry.course_id == course.id, TimetableEntry.academic_year == year)
+        .all()
+    )
+    if not entries:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This course is not on the {year} timetable. Ask the admin to schedule it first.",
+        )
+
+    today_entries = [e for e in entries if e.day_of_week == local_now.weekday()]
+    if not today_entries:
+        raise HTTPException(
+            status_code=400,
+            detail="This course has no class scheduled today.",
+        )
+
+    week_start, week_end = week_bounds_utc(local_now)
+    week_sessions = (
         db.query(AttendanceSession)
         .filter(
-            AttendanceSession.course_id == data.course_id,
-            AttendanceSession.opened_at >= today_start,
-            AttendanceSession.opened_at < today_end,
+            AttendanceSession.course_id == course.id,
+            AttendanceSession.opened_at >= week_start,
+            AttendanceSession.opened_at < week_end,
         )
-        .first()
+        .all()
     )
-    if already_opened_today and not data.confirm_duplicate:
-        raise HTTPException(
-            status_code=409,
-            detail="DUPLICATE_SESSION_TODAY"
-        )
-    
-  # Check if opening within the course's scheduled time window
-    is_outside_schedule = False
-    if course.start_time and course.end_time:
-        now_time = datetime.utcnow().time()
-        if now_time < course.start_time or now_time > course.end_time:
-            is_outside_schedule = True
-            if not data.confirm_outside_schedule:
-                raise HTTPException(
-                    status_code=409,
-                    detail="OUTSIDE_SCHEDULED_TIME"
-                )
+    used = used_entry_ids(week_sessions, entries)
+
+    # Which of today's classes is this session for?
+    target, inside = locate(today_entries, local_now)
+    if not inside:
+        unused_today = [e for e in today_entries if e.id not in used]
+        if not unused_today:
+            raise HTTPException(
+                status_code=400,
+                detail="All of today's classes for this course already had their attendance "
+                       "session, and none is running now.",
+            )
+        target, _ = locate(unused_today, local_now)
+
+    # Reopening a class that already had a session is allowed only while its time is running
+    if target.id in used and not data.confirm_duplicate:
+        raise HTTPException(status_code=409, detail="DUPLICATE_SESSION_TODAY")
+
+    # Opening outside every class time (a swap, or running late) needs confirmation
+    is_outside_schedule = not inside
+    if is_outside_schedule and not data.confirm_outside_schedule:
+        raise HTTPException(status_code=409, detail="OUTSIDE_SCHEDULED_TIME")
 
     # Close any existing active session for this course
     existing = (
@@ -87,7 +121,6 @@ def open_session(
     if existing:
         existing.is_active = False
 
-    now = datetime.utcnow()
     session = AttendanceSession(
         id=str(uuid4()),
         course_id=data.course_id,
@@ -105,7 +138,6 @@ def open_session(
     db.refresh(session)
 
     return session
-
 
 # ---------- TEACHER: CLOSE SESSION ----------
 @router.post("/sessions/{session_id}/close", response_model=SessionResponse)
