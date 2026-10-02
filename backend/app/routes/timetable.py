@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 
 from app.database import get_db
-from sqlalchemy import or_
 from app.models import Course, User, TimetableEntry, CourseDepartment
 from app.utils.security import get_current_user
 from app.utils.timetable_rules import (
@@ -11,10 +11,10 @@ from app.utils.timetable_rules import (
     check_weekly_blocks,
     check_clashes,
     check_teacher_change,
+    check_not_future,
 )
 
 router = APIRouter()
-
 
 def _require_admin(user):
     if user.role != "admin":
@@ -255,6 +255,7 @@ def copy_timetable(
         raise HTTPException(status_code=400, detail="Department, level and semester are required")
     if from_year == to_year:
         raise HTTPException(status_code=400, detail="Choose two different academic years")
+    check_not_future(to_year)
 
     joint_course_ids = [
         r.course_id

@@ -14,7 +14,7 @@ def to_local(utc_dt):
 def academic_year_for(local_dt):
     """September to August counts as one academic year."""
     y = local_dt.year
-    return f"{y}/{y + 1}" if local_dt.month >= 9 else f"{y - 1}/{y}"
+    return f"{y}/{y + 1}" if local_dt.month >= 10 else f"{y - 1}/{y}"
 
 
 def block_window(entry):

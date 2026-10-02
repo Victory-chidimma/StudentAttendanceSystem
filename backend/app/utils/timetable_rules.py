@@ -1,6 +1,8 @@
 import re
 from fastapi import HTTPException
 from app.models import TimetableEntry, Course, User, CourseDepartment, Department
+from datetime import datetime
+from app.utils.schedule_rules import academic_year_for, to_local
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 PERIOD_STARTS = {1: "7:30", 2: "9:30", 3: "12:30", 4: "2:30"}
@@ -14,6 +16,14 @@ def block_periods(start_period, span):
 def block_label(day, start_period, span):
     return f"{DAY_NAMES[day]} {PERIOD_STARTS[start_period]}-{PERIOD_ENDS[start_period + span - 1]}"
 
+
+def check_not_future(year):
+    current = academic_year_for(to_local(datetime.utcnow()))
+    if int(year[:4]) > int(current[:4]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{year} has not started yet. The current academic year is {current}.",
+        )
 
 def check_shape(day_of_week, start_period, span, hall, academic_year):
     try:
@@ -40,8 +50,8 @@ def check_shape(day_of_week, start_period, span, hall, academic_year):
     m = re.fullmatch(r"(\d{4})/(\d{4})", year)
     if not m or int(m.group(2)) != int(m.group(1)) + 1:
         raise HTTPException(status_code=400, detail="Academic year must look like 2025/2026")
+        check_not_future(year)
     return day, start, span, hall, year
-
 
 def check_weekly_blocks(db, course, year, span, exclude_entry_id=None):
     existing = (
