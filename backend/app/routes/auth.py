@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import uuid
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from app.database import get_db
 from app.models import User
@@ -153,8 +153,10 @@ def update_face(
 # ---------- FACIAL LOGIN (Students & Teachers) ----------
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
+    identifier = data.email.strip().lower()
     user = db.query(User).filter(
-        (User.email == data.email) | (User.matricule == data.email)
+        (func.lower(User.email) == identifier)
+        | (func.lower(User.matricule) == identifier)
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -162,8 +164,21 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
+    # The account type must match the login tab, checked before any face scan is asked for
+    role_name = getattr(user.role, "value", user.role)
+    if role_name == "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="This is an admin account. Please use the Admin login.",
+        )
+    if data.role and data.role != role_name:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This is a {role_name} account. Please use the {role_name.capitalize()} login.",
+        )
+
     # Students: password-only login, no face check
-    if user.role == "student":
+    if role_name == "student":
         token = create_access_token({"sub": user.id, "role": user.role})
         return TokenResponse(
             access_token=token,
@@ -172,7 +187,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             role=user.role
         )
 
-    # Teachers (and any other non-student role): face + liveness still required
+    # Teachers: face + liveness still required
     if not data.face_image or not data.face_image_turned:
         raise HTTPException(status_code=400, detail="Face images are required for this account type")
 

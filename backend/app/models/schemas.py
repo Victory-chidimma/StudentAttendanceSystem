@@ -25,6 +25,7 @@ class LoginRequest(BaseModel):
     password: str
     face_image: Optional[str] = None
     face_image_turned: Optional[str] = None
+    role: Optional[str] = None
     
 class AdminLoginRequest(BaseModel):
     email: EmailStr
