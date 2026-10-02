@@ -237,3 +237,95 @@ def delete_entry(
     db.delete(entry)
     db.commit()
     return {"message": "Timetable entry deleted"}
+
+@router.post("/copy")
+def copy_timetable(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+
+    department_id = data.get("department_id")
+    level = data.get("level")
+    semester = data.get("semester")
+    from_year = (data.get("from_year") or "").strip()
+    to_year = (data.get("to_year") or "").strip()
+    if not department_id or level is None or not semester:
+        raise HTTPException(status_code=400, detail="Department, level and semester are required")
+    if from_year == to_year:
+        raise HTTPException(status_code=400, detail="Choose two different academic years")
+
+    joint_course_ids = [
+        r.course_id
+        for r in db.query(CourseDepartment).filter(CourseDepartment.department_id == department_id).all()
+    ]
+    condition = Course.department_id == department_id
+    if joint_course_ids:
+        condition = or_(condition, Course.id.in_(joint_course_ids))
+    courses = (
+        db.query(Course)
+        .filter(condition, Course.level == int(level), Course.semester == semester)
+        .all()
+    )
+    course_map = {c.id: c for c in courses}
+    if not course_map:
+        return {"copied": 0, "already_there": 0, "skipped": []}
+
+    source = (
+        db.query(TimetableEntry)
+        .filter(
+            TimetableEntry.course_id.in_(list(course_map.keys())),
+            TimetableEntry.academic_year == from_year,
+        )
+        .order_by(TimetableEntry.day_of_week, TimetableEntry.start_period)
+        .all()
+    )
+
+    copied = 0
+    already = 0
+    skipped = []
+    for e in source:
+        course = course_map[e.course_id]
+        exists = (
+            db.query(TimetableEntry)
+            .filter(
+                TimetableEntry.course_id == e.course_id,
+                TimetableEntry.academic_year == to_year,
+                TimetableEntry.day_of_week == e.day_of_week,
+                TimetableEntry.start_period == e.start_period,
+                TimetableEntry.span == e.span,
+            )
+            .first()
+        )
+        if exists:
+            already += 1
+            continue
+        if not course.teacher_id:
+            skipped.append({"course_code": course.code, "reason": "No teacher assigned to this course"})
+            continue
+        try:
+            day, start, span, hall, year = check_shape(
+                e.day_of_week, e.start_period, e.span, e.hall, to_year
+            )
+            check_weekly_blocks(db, course, year, span)
+            check_clashes(db, course, course.teacher_id, day, start, span, hall, year)
+        except HTTPException as err:
+            skipped.append({"course_code": course.code, "reason": str(err.detail)})
+            continue
+        db.add(
+            TimetableEntry(
+                id=str(uuid4()),
+                course_id=course.id,
+                day_of_week=day,
+                start_period=start,
+                span=span,
+                hall=hall,
+                academic_year=year,
+            )
+        )
+        db.flush()
+        copied += 1
+
+    db.commit()
+    return {"copied": copied, "already_there": already, "skipped": skipped}
