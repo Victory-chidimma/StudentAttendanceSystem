@@ -166,11 +166,10 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     # The account type must match the login tab, checked before any face scan is asked for
     role_name = getattr(user.role, "value", user.role)
+    
     if role_name == "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="This is an admin account. Please use the Admin login.",
-        )
+        # An admin account gets the same reply as a wrong password on this login
+        raise HTTPException(status_code=401, detail="Incorrect password")
     if data.role and data.role != role_name:
         raise HTTPException(
             status_code=403,
