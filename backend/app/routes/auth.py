@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import re
+from html import escape
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import uuid
@@ -13,6 +17,8 @@ from app.models.schemas import (
 )
 from app.utils.security import hash_password, verify_password, create_access_token, get_current_user
 from app.utils.matricule_rules import check_matricule
+from app.utils.mailer import send_email
+from app.utils.reset_tokens import make_reset_token, read_reset_token
 from app.services.face_service import (
     decode_base64_image, get_face_encoding, compare_faces,
     encoding_to_list, list_to_encoding, detect_head_turn, evaluate_face_update,
@@ -265,3 +271,120 @@ def admin_update_teacher_face(
         status="accepted",
         distance=0.0
     )
+
+# ---------- FORGOT PASSWORD ----------
+PUBLIC_BASE_URL = os.getenv(
+    "PUBLIC_BASE_URL", "https://studentattendancesystem-production-fc88.up.railway.app"
+)
+
+RESET_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reset password</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f6fb;margin:0;padding:24px;}
+.card{max-width:380px;margin:40px auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);}
+h2{margin-top:0;color:#0D47A1;}
+input{width:100%;box-sizing:border-box;padding:12px;margin:6px 0 14px;border:1px solid #ccc;border-radius:8px;font-size:15px;}
+button{width:100%;padding:13px;background:#0D47A1;color:#fff;border:0;border-radius:8px;font-size:16px;}
+#msg{margin-top:14px;font-size:14px;}
+</style></head><body><div class="card">
+<h2>Choose a new password</h2>
+<label>New password</label><input id="p1" type="password" autocomplete="new-password">
+<label>Confirm password</label><input id="p2" type="password" autocomplete="new-password">
+<button id="go">Save new password</button>
+<div id="msg"></div></div>
+<script>
+const token = "__TOKEN__";
+document.getElementById("go").onclick = async () => {
+  const msg = document.getElementById("msg");
+  const p1 = document.getElementById("p1").value;
+  const p2 = document.getElementById("p2").value;
+  if (p1.length < 6) { msg.style.color = "#b00020"; msg.textContent = "Use at least 6 characters."; return; }
+  if (p1 !== p2) { msg.style.color = "#b00020"; msg.textContent = "The two passwords do not match."; return; }
+  msg.style.color = "#333"; msg.textContent = "Saving...";
+  try {
+    const res = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: token, password: p1})
+    });
+    const body = await res.json();
+    if (res.ok) {
+      msg.style.color = "#1B5E20";
+      msg.textContent = "Password changed. You can now return to the app and log in.";
+      document.getElementById("go").disabled = true;
+    } else {
+      msg.style.color = "#b00020";
+      msg.textContent = body.detail || "Could not change the password.";
+    }
+  } catch (e) {
+    msg.style.color = "#b00020";
+    msg.textContent = "Connection problem. Please try again.";
+  }
+};
+</script></body></html>"""
+
+
+def _send_reset_email(user_email, full_name, link):
+    body = (
+        f"<p>Hello {escape(full_name or '')},</p>"
+        "<p>We received a request to reset your HIMS Attendance password. "
+        "Tap the button below to choose a new one. The link works once and "
+        "expires in 30 minutes.</p>"
+        f'<p><a href="{link}" style="background:#0D47A1;color:#ffffff;padding:12px 20px;'
+        'border-radius:6px;text-decoration:none;">Reset my password</a></p>'
+        "<p>If you did not ask for this, you can ignore this email. "
+        "Your password will not change.</p>"
+    )
+    send_email(user_email, "Reset your HIMS Attendance password", body)
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    data: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Please enter your email address")
+
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if user:
+        token = make_reset_token(user)
+        if token:
+            link = f"{PUBLIC_BASE_URL}/api/auth/reset-password?token={token}"
+            background_tasks.add_task(_send_reset_email, user.email, user.full_name, link)
+
+    # The same answer whether or not the email exists
+    return {"message": "If this email is registered, a reset link has been sent to it."}
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page(token: str = "", db: Session = Depends(get_db)):
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]+", token) or not read_reset_token(token, db, User):
+        return HTMLResponse(
+            "<html><body style='font-family:Arial;padding:24px'>"
+            "<h3>This link is no longer valid.</h3>"
+            "<p>It may have expired or already been used. "
+            "Please request a new one from the app.</p></body></html>",
+            status_code=400,
+        )
+    return HTMLResponse(RESET_PAGE.replace("__TOKEN__", token))
+
+
+@router.post("/reset-password")
+def reset_password(data: dict, db: Session = Depends(get_db)):
+    token = data.get("token") or ""
+    password = data.get("password") or ""
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Use at least 6 characters.")
+    user = read_reset_token(token, db, User)
+    if not user:
+        raise HTTPException(
+            status_code=400,
+            detail="This link is no longer valid. Please request a new one.",
+        )
+    user.password = hash_password(password)
+    db.commit()
+    return {"message": "Password changed"}
