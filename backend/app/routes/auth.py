@@ -12,6 +12,7 @@ from app.models.schemas import (
     UpdateFaceRequest, UpdateFaceResponse, AdminUpdateTeacherFaceRequest,
 )
 from app.utils.security import hash_password, verify_password, create_access_token, get_current_user
+from app.utils.matricule_rules import check_matricule
 from app.services.face_service import (
     decode_base64_image, get_face_encoding, compare_faces,
     encoding_to_list, list_to_encoding, detect_head_turn, evaluate_face_update,
@@ -33,20 +34,14 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     if data.role != "student":
         raise HTTPException(status_code=403, detail="Self-registration is only permitted for students. Teacher and admin accounts must be created by an administrator.")
 
-    if data.matricule and data.level:
-        matricule_upper = data.matricule.strip().upper()
-        is_btec_format = "UBA" in matricule_upper
-
-        if is_btec_format and data.level != 400:
-            raise HTTPException(
-                status_code=400,
-                detail="This matricule format (UBA) is for Level 400 students only. Please check your level or matricule."
-            )
-        if not is_btec_format and data.level == 400:
-            raise HTTPException(
-                status_code=400,
-                detail="Level 400 matricules must start with UBA. Please check your matricule."
-            )
+    matricule = None
+    if data.matricule:
+        if not data.level:
+            raise HTTPException(status_code=400, detail="Level is required with a matricule")
+        matricule = check_matricule(data.matricule, data.level)
+        duplicate = db.query(User).filter(func.upper(User.matricule) == matricule).first()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="This matricule is already registered.")
 
     # Liveness check: verify a genuine head turn between two frames
     frame1_array = decode_base64_image(data.face_image)
@@ -70,7 +65,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
         role=data.role,
         face_image=str(encoding_to_list(encoding)), # store encoding as string
         face_last_updated=datetime.utcnow(),
-        matricule=data.matricule,
+        matricule=matricule,
         department_id=data.department_id,
         level=data.level,
     )
@@ -166,7 +161,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     # The account type must match the login tab, checked before any face scan is asked for
     role_name = getattr(user.role, "value", user.role)
-    
+
     if role_name == "admin":
         # An admin account gets the same reply as a wrong password on this login
         raise HTTPException(status_code=401, detail="Incorrect password")
