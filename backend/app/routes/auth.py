@@ -291,6 +291,7 @@ button{width:100%;padding:13px;background:#0D47A1;color:#fff;border:0;border-rad
 <h2>Choose a new password</h2>
 <label>New password</label><input id="p1" type="password" autocomplete="new-password">
 <label>Confirm password</label><input id="p2" type="password" autocomplete="new-password">
+<label style="display:block;margin-bottom:14px;font-size:14px;"><input type="checkbox" style="width:auto;margin:0 8px 0 0;" onchange="document.getElementById('p1').type=this.checked?'text':'password';document.getElementById('p2').type=this.checked?'text':'password';"> Show password</label>
 <button id="go">Save new password</button>
 <div id="msg"></div></div>
 <script>
