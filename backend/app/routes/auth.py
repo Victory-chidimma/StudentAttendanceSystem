@@ -350,11 +350,16 @@ def forgot_password(
         raise HTTPException(status_code=400, detail="Please enter your email address")
 
     user = db.query(User).filter(func.lower(User.email) == email).first()
-    if user:
+    if not user:
+        print("[mail] forgot-password: no account with that email")
+    else:
         token = make_reset_token(user)
-        if token:
+        if not token:
+            print("[mail] forgot-password: no secret set (BREVO_API_KEY is missing)")
+        else:
             link = f"{PUBLIC_BASE_URL}/api/auth/reset-password?token={token}"
             background_tasks.add_task(_send_reset_email, user.email, user.full_name, link)
+            print("[mail] forgot-password: reset email queued")
 
     # The same answer whether or not the email exists
     return {"message": "If this email is registered, a reset link has been sent to it."}

@@ -33,7 +33,9 @@ def send_email(to_email, subject, html_content):
     )
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
-            return 200 <= response.status < 300
+         ok = 200 <= response.status < 300
+        print("[mail] Brevo answered with status", response.status)
+        return ok
     except urllib.error.HTTPError as err:
         print("[mail] Brevo refused the email:", err.code, err.read().decode("utf-8", "ignore"))
         return False
