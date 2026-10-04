@@ -4,9 +4,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.database import get_db
-from app.models import AttendanceSession, Attendance, Course, User, TimetableEntry
+from app.models import AttendanceSession, Attendance, Course, User, TimetableEntry, CourseDepartment
 from app.models.schemas import (
     SessionCreateRequest,
     SessionResponse,
@@ -382,3 +383,73 @@ def get_session_records(
         "total": len(result),
         "records": result,
     }
+# ---------- STUDENT: ATTENDANCE PERCENTAGE PER COURSE ----------
+@router.get("/my-percentages")
+def get_my_percentages(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can view their percentages")
+
+    if not current_user.department_id or not current_user.level:
+        return {"courses": [], "overall": None}
+
+    year = academic_year_for(to_local(datetime.utcnow()))
+    start_year = int(year[:4])
+    year_start = datetime(start_year, 10, 1)
+    year_end = datetime(start_year + 1, 10, 1)
+    if current_user.created_at and current_user.created_at > year_start:
+        year_start = current_user.created_at
+
+    shared = db.query(CourseDepartment.course_id).filter(
+        CourseDepartment.department_id == current_user.department_id
+    )
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.level == current_user.level,
+            or_(Course.department_id == current_user.department_id, Course.id.in_(shared)),
+        )
+        .order_by(Course.name)
+        .all()
+    )
+
+    result = []
+    total_held = 0
+    total_attended = 0
+    for c in courses:
+        session_ids = [
+            s.id
+            for s in db.query(AttendanceSession.id).filter(
+                AttendanceSession.course_id == c.id,
+                AttendanceSession.opened_at >= year_start,
+                AttendanceSession.opened_at < year_end,
+            )
+        ]
+        held = len(session_ids)
+        attended = 0
+        if session_ids:
+            attended = (
+                db.query(Attendance)
+                .filter(
+                    Attendance.student_id == current_user.id,
+                    Attendance.status == "present",
+                    Attendance.session_id.in_(session_ids),
+                )
+                .count()
+            )
+        percentage = round(attended / held * 100, 1) if held else None
+        total_held += held
+        total_attended += attended
+        result.append({
+            "course_id": c.id,
+            "course_name": c.name,
+            "course_code": c.code,
+            "sessions_held": held,
+            "attended": attended,
+            "percentage": percentage,
+        })
+
+    overall = round(total_attended / total_held * 100, 1) if total_held else None
+    return {"academic_year": year, "courses": result, "overall": overall}
