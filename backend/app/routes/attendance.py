@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.database import get_db
-from app.models import AttendanceSession, Attendance, Course, User, TimetableEntry, CourseDepartment
+from app.models import AttendanceSession, Attendance, Course, User, TimetableEntry, CourseDepartment, Department
 from app.models.schemas import (
     SessionCreateRequest,
     SessionResponse,
@@ -455,3 +455,130 @@ def get_my_percentages(
 
     overall = round(total_attended / total_held * 100, 1) if total_held else None
     return {"academic_year": year, "courses": result, "overall": overall}
+
+# ---------- ADMIN: ATTENDANCE REPORT (department, level, semester) ----------
+@router.get("/report")
+def attendance_report(
+    department_id: str,
+    level: int,
+    semester: str,
+    course_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view reports")
+    if semester not in ("first", "second"):
+        raise HTTPException(status_code=400, detail="Semester must be 'first' or 'second'")
+
+    dept_id = str(department_id)
+    department = db.query(Department).filter(Department.id == dept_id).first()
+
+    year = academic_year_for(to_local(datetime.utcnow()))
+    start_year = int(year[:4])
+    year_start = datetime(start_year, 10, 1)
+    year_end = datetime(start_year + 1, 10, 1)
+
+    shared = db.query(CourseDepartment.course_id).filter(
+        CourseDepartment.department_id == dept_id
+    )
+    course_query = db.query(Course).filter(
+        Course.level == level,
+        Course.semester == semester,
+        or_(Course.department_id == dept_id, Course.id.in_(shared)),
+    )
+    if course_id:
+        course_query = course_query.filter(Course.id == course_id)
+    courses = course_query.order_by(Course.code).all()
+
+    # Sessions held for each course this academic year
+    sessions_by_course = {}
+    all_session_ids = []
+    for c in courses:
+        rows = (
+            db.query(AttendanceSession.id, AttendanceSession.opened_at)
+            .filter(
+                AttendanceSession.course_id == c.id,
+                AttendanceSession.opened_at >= year_start,
+                AttendanceSession.opened_at < year_end,
+            )
+            .all()
+        )
+        sessions_by_course[c.id] = [(r.id, r.opened_at) for r in rows]
+        all_session_ids.extend(r.id for r in rows)
+
+    # Which sessions each student was present in
+    present = {}
+    if all_session_ids:
+        rows = (
+            db.query(Attendance.student_id, Attendance.session_id)
+            .filter(
+                Attendance.status == "present",
+                Attendance.session_id.in_(all_session_ids),
+            )
+            .all()
+        )
+        for r in rows:
+            present.setdefault(r.student_id, set()).add(r.session_id)
+
+    students = (
+        db.query(User)
+        .filter(
+            User.role == "student",
+            User.department_id == dept_id,
+            User.level == level,
+        )
+        .order_by(User.full_name)
+        .all()
+    )
+
+    result_students = []
+    for st in students:
+        start = year_start
+        if st.created_at and st.created_at > start:
+            start = st.created_at
+        mine = present.get(st.id, set())
+        total_held = 0
+        total_attended = 0
+        per_course = []
+        for c in courses:
+            relevant = [
+                sid for sid, opened in sessions_by_course[c.id]
+                if opened and opened >= start
+            ]
+            held = len(relevant)
+            attended = sum(1 for sid in relevant if sid in mine)
+            pct = round(attended / held * 100, 1) if held else None
+            total_held += held
+            total_attended += attended
+            per_course.append({
+                "course_id": c.id,
+                "attended": attended,
+                "held": held,
+                "percentage": pct,
+            })
+        overall = round(total_attended / total_held * 100, 1) if total_held else None
+        result_students.append({
+            "student_id": st.id,
+            "full_name": st.full_name,
+            "matricule": st.matricule,
+            "courses": per_course,
+            "overall": overall,
+        })
+
+    return {
+        "department_name": department.name if department else "",
+        "level": level,
+        "semester": semester,
+        "academic_year": year,
+        "courses": [
+            {
+                "id": c.id,
+                "code": c.code,
+                "name": c.name,
+                "sessions_held": len(sessions_by_course[c.id]),
+            }
+            for c in courses
+        ],
+        "students": result_students,
+    }
