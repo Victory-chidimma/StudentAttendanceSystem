@@ -395,6 +395,8 @@ def get_my_percentages(
     if not current_user.department_id or not current_user.level:
         return {"courses": [], "overall": None}
 
+    dept_id = str(current_user.department_id)
+
     year = academic_year_for(to_local(datetime.utcnow()))
     start_year = int(year[:4])
     year_start = datetime(start_year, 10, 1)
@@ -402,7 +404,6 @@ def get_my_percentages(
     if current_user.created_at and current_user.created_at > year_start:
         year_start = current_user.created_at
 
-        dept_id = str(current_user.department_id)
     shared = db.query(CourseDepartment.course_id).filter(
         CourseDepartment.department_id == dept_id
     )
@@ -410,7 +411,7 @@ def get_my_percentages(
         db.query(Course)
         .filter(
             Course.level == current_user.level,
-                        or_(Course.department_id == dept_id, Course.id.in_(shared)),
+            or_(Course.department_id == dept_id, Course.id.in_(shared)),
         )
         .order_by(Course.name)
         .all()
