@@ -402,14 +402,15 @@ def get_my_percentages(
     if current_user.created_at and current_user.created_at > year_start:
         year_start = current_user.created_at
 
+        dept_id = str(current_user.department_id)
     shared = db.query(CourseDepartment.course_id).filter(
-        CourseDepartment.department_id == current_user.department_id
+        CourseDepartment.department_id == dept_id
     )
     courses = (
         db.query(Course)
         .filter(
             Course.level == current_user.level,
-            or_(Course.department_id == current_user.department_id, Course.id.in_(shared)),
+                        or_(Course.department_id == dept_id, Course.id.in_(shared)),
         )
         .order_by(Course.name)
         .all()
