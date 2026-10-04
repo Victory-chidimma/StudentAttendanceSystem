@@ -394,3 +394,16 @@ def reset_password(data: dict, db: Session = Depends(get_db)):
     user.password = hash_password(password)
     db.commit()
     return {"message": "Password changed"}
+
+    # ---------- WHO AM I (profile details) ----------
+@router.get("/me")
+def read_me(current_user: User = Depends(get_current_user)):
+    role_name = getattr(current_user.role, "value", current_user.role)
+    return {
+        "id": current_user.id,
+        "full_name": current_user.full_name,
+        "email": current_user.email,
+        "role": role_name,
+        "matricule": current_user.matricule,
+        "level": current_user.level,
+    }
